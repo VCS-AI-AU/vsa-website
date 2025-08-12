@@ -1,0 +1,23 @@
+diff --git a/prisma/schema.prisma b/prisma/schema.prisma
+--- a/prisma/schema.prisma
++++ b/prisma/schema.prisma
+@@
+-datasource db {
+-  provider = "postgresql"
+-  url      = env("DATABASE_URL")
+-}
++datasource db {
++  provider = "sqlite"
++  url      = env("DATABASE_URL")
++}
+@@
+-  priceFrom   Decimal         @db.Decimal(10, 2)
++  priceFrom   Decimal
+diff --git a/.env.example b/.env.example
+--- a/.env.example
++++ b/.env.example
+@@
+-# --- Database (PostgreSQL via Prisma) ---
+-DATABASE_URL=postgresql://USER:PASSWORD@HOST:PORT/DBNAME?schema=public
++# --- Database (SQLite for local dev; no Docker required) ---
++DATABASE_URL="file:./dev.db"

@@ -1,1 +1,55 @@
 generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// -----------------------------
+// VSA Service & Inquiry Models
+// -----------------------------
+
+model ServiceCategory {
+  id        String    @id @default(cuid())
+  slug      String    @unique
+  name      String
+  services  Service[]
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+
+model Service {
+  id          String          @id @default(cuid())
+  slug        String          @unique
+  name        String
+  summary     String
+  description String
+  priceFrom   Decimal
+  featured    Boolean         @default(false)
+  categoryId  String
+  category    ServiceCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  inquiries   Inquiry[]
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+}
+
+enum InquiryStatus {
+  NEW
+  READ
+  ARCHIVED
+}
+
+model Inquiry {
+  id        String        @id @default(cuid())
+  name      String
+  email     String
+  phone     String?
+  message   String
+  consent   Boolean       @default(false)
+  serviceId String?
+  service   Service?      @relation(fields: [serviceId], references: [id], onDelete: SetNull)
+  status    InquiryStatus @default(NEW)
+  createdAt DateTime      @default(now())
+}

@@ -1,0 +1,1166 @@
+diff --git a/prisma/schema.prisma b/prisma/schema.prisma
+new file mode 100644
+--- /dev/null
++++ b/prisma/schema.prisma
+@@ -0,0 +69 @@
++generator client {
++  provider = "prisma-client-js"
++}
++
++datasource db {
++  provider = "postgresql"
++  url      = env("DATABASE_URL")
++}
++
++// -----------------------------
++// VSA Service & Inquiry Models
++// -----------------------------
++
++model ServiceCategory {
++  id        String   @id @default(cuid())
++  slug      String   @unique
++  name      String
++  services  Service[]
++  createdAt DateTime @default(now())
++  updatedAt DateTime @updatedAt
++}
++
++model Service {
++  id          String          @id @default(cuid())
++  slug        String          @unique
++  name        String
++  summary     String
++  description String
++  priceFrom   Decimal         @db.Decimal(10, 2)
++  featured    Boolean         @default(false)
++  categoryId  String
++  category    ServiceCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
++  inquiries   Inquiry[]
++  createdAt   DateTime        @default(now())
++  updatedAt   DateTime        @updatedAt
++}
++
++enum InquiryStatus {
++  NEW
++  READ
++  ARCHIVED
++}
++
++model Inquiry {
++  id         String        @id @default(cuid())
++  name       String
++  email      String
++  phone      String?
++  message    String
++  consent    Boolean       @default(false)
++  serviceId  String?
++  service    Service?      @relation(fields: [serviceId], references: [id], onDelete: SetNull)
++  status     InquiryStatus @default(NEW)
++  createdAt  DateTime      @default(now())
++}
++
+diff --git a/prisma/seed.mjs b/prisma/seed.mjs
+new file mode 100644
+--- /dev/null
++++ b/prisma/seed.mjs
+@@ -0,0 +135 @@
++import { PrismaClient } from '@prisma/client';
++
++const prisma = new PrismaClient();
++
++async function main() {
++  const categories = [
++    { slug: 'strategy', name: 'Strategy' },
++    { slug: 'design', name: 'Design' },
++    { slug: 'engineering', name: 'Engineering' },
++    { slug: 'marketing', name: 'Marketing' },
++  ];
++
++  // upsert categories
++  for (const c of categories) {
++    await prisma.serviceCategory.upsert({
++      where: { slug: c.slug },
++      update: { name: c.name },
++      create: c,
++    });
++  }
++
++  const bySlug = Object.fromEntries(
++    (await prisma.serviceCategory.findMany()).map((c) => [c.slug, c])
++  );
++
++  const services = [
++    {
++      slug: 'website-audit',
++      name: 'Website Audit',
++      summary: 'Heuristic + performance audit with prioritized fixes.',
++      description:
++        'Deep-dive audit covering accessibility (WCAG 2.2 AA), Core Web Vitals, SEO hygiene, and conversion friction, including a prioritized remediation plan.',
++      priceFrom: 1800.0,
++      featured: true,
++      categoryId: bySlug.strategy.id,
++    },
++    {
++      slug: 'landing-page',
++      name: 'Landing Page',
++      summary: 'High‑converting, fast, accessible landing page.',
++      description:
++        'Design + build of a single marketing landing page in Next.js with a11y checks, analytics events, and SEO metadata.',
++      priceFrom: 3200.0,
++      featured: true,
++      categoryId: bySlug.design.id,
++    },
++    {
++      slug: 'ecommerce-integration',
++      name: 'Ecommerce Integration',
++      summary: 'Checkout integration and product catalog setup.',
++      description:
++        'Integrate a modern headless commerce provider, wire product listing/search, and implement secure checkout flows.',
++      priceFrom: 7800.0,
++      featured: false,
++      categoryId: bySlug.engineering.id,
++    },
++    {
++      slug: 'seo-sprint',
++      name: 'SEO Sprint',
++      summary: 'Four‑week sprint to ship technical SEO fixes.',
++      description:
++        'Structured data (JSON‑LD), sitemaps, canonical/robots, link architecture, and performance optimizations.',
++      priceFrom: 4500.0,
++      featured: false,
++      categoryId: bySlug.marketing.id,
++    },
++    {
++      slug: 'brand-refresh',
++      name: 'Brand Refresh',
++      summary: 'Lightweight brand refinements and token updates.',
++      description:
++        'Refresh typography, color tokens, and UI polish; ship a tokenized theme to your design system.',
++      priceFrom: 5200.0,
++      featured: false,
++      categoryId: bySlug.design.id,
++    },
++    {
++      slug: 'performance-optimization',
++      name: 'Performance Optimization',
++      summary: 'Improve Core Web Vitals across key routes.',
++      description:
++        'Font loading, image strategy, route‑level code splitting, prefetching, and INP improvements.',
++      priceFrom: 3900.0,
++      featured: true,
++      categoryId: bySlug.engineering.id,
++    },
++  ];
++
++  for (const s of services) {
++    await prisma.service.upsert({
++      where: { slug: s.slug },
++      update: {
++        name: s.name,
++        summary: s.summary,
++        description: s.description,
++        priceFrom: s.priceFrom,
++        featured: s.featured,
++        categoryId: s.categoryId,
++      },
++      create: s,
++    });
++  }
++
++  console.log('✅ Seeded categories and services.');
++}
++
++main()
++  .catch((e) => {
++    console.error(e);
++    process.exit(1);
++  })
++  .finally(async () => {
++    await prisma.$disconnect();
++  });
++
+diff --git a/lib/prisma.ts b/lib/prisma.ts
+new file mode 100644
+--- /dev/null
++++ b/lib/prisma.ts
+@@ -0,0 +24 @@
++import { PrismaClient } from '@prisma/client';
++
++const globalForPrisma = globalThis as unknown as {
++  prisma?: PrismaClient;
++};
++
++export const prisma =
++  globalForPrisma.prisma ??
++  new PrismaClient({
++    log:
++      process.env.NODE_ENV === 'development'
++        ? ['query', 'error', 'warn']
++        : ['error'],
++  });
++
++if (process.env.NODE_ENV !== 'production') {
++  globalForPrisma.prisma = prisma;
++}
++
++export default prisma;
++
+diff --git a/lib/validators/service.ts b/lib/validators/service.ts
+new file mode 100644
+--- /dev/null
++++ b/lib/validators/service.ts
+@@ -0,0 +38 @@
++import { z } from 'zod';
++
++export const serviceFiltersSchema = z.object({
++  q: z.string().trim().min(1).max(100).optional(),
++  category: z.string().trim().min(1).max(50).optional(),
++  featured: z
++    .union([z.literal('1'), z.literal('true'), z.literal('0'), z.literal('false')])
++    .optional()
++    .transform((v) => (v === '1' || v === 'true' ? true : v ? false : undefined)),
++  sort: z
++    .enum(['newest', 'price_asc', 'price_desc'])
++    .default('newest')
++    .optional(),
++  page: z.coerce.number().int().min(1).default(1).optional(),
++  pageSize: z.coerce.number().int().min(1).max(50).default(12).optional(),
++});
++
++export type ServiceFilters = z.infer<typeof serviceFiltersSchema>;
++
++export const serializeService = (s: any) => ({
++  id: s.id,
++  slug: s.slug,
++  name: s.name,
++  summary: s.summary,
++  description: s.description,
++  priceFrom: Number(s.priceFrom),
++  featured: s.featured,
++  category: s.category
++    ? { slug: s.category.slug, name: s.category.name }
++    : undefined,
++  createdAt: s.createdAt?.toISOString?.() ?? s.createdAt,
++  updatedAt: s.updatedAt?.toISOString?.() ?? s.updatedAt,
++});
++
+diff --git a/lib/validators/inquiry.ts b/lib/validators/inquiry.ts
+new file mode 100644
+--- /dev/null
++++ b/lib/validators/inquiry.ts
+@@ -0,0 +33 @@
++import { z } from 'zod';
++
++export const inquirySchema = z
++  .object({
++    name: z.string().min(2).max(100),
++    email: z.string().email(),
++    phone: z
++      .string()
++      .trim()
++      .max(30)
++      .optional()
++      .refine(
++        (v) => !v || /^[+()\d\-.\s]{7,}$/.test(v),
++        'Enter a valid phone number'
++      ),
++    message: z.string().min(10).max(2000),
++    serviceSlug: z.string().min(1).max(100).optional(),
++    consent: z.literal(true, {
++      errorMap: () => ({ message: 'Consent is required' }),
++    }),
++    formLoadedAt: z.number().int(),
++    hp: z.string().max(0).optional().or(z.literal('')).optional(), // honeypot: must be empty
++  })
++  .refine(
++    (data) => Date.now() - data.formLoadedAt >= 3000,
++    'Form submitted too quickly; please try again.'
++  );
++
++export type InquiryInput = z.infer<typeof inquirySchema>;
++
+diff --git a/lib/http.ts b/lib/http.ts
+new file mode 100644
+--- /dev/null
++++ b/lib/http.ts
+@@ -0,0 +22 @@
++export async function fetchJson<T>(
++  url: string,
++  init?: RequestInit & { timeoutMs?: number }
++): Promise<T> {
++  const { timeoutMs = 10000, ...rest } = init ?? {};
++  const controller = new AbortController();
++  const id = setTimeout(() => controller.abort(), timeoutMs);
++  try {
++    const res = await fetch(url, { ...rest, signal: controller.signal });
++    if (!res.ok) {
++      const text = await res.text().catch(() => '');
++      throw new Error(`HTTP ${res.status}: ${text || res.statusText}`);
++    }
++    return (await res.json()) as T;
++  } finally {
++    clearTimeout(id);
++  }
++}
++
+diff --git a/lib/hooks/useServices.ts b/lib/hooks/useServices.ts
+new file mode 100644
+--- /dev/null
++++ b/lib/hooks/useServices.ts
+@@ -0,0 +43 @@
++'use client';
++
++import { useMemo } from 'react';
++import { useQuery, QueryClient, QueryClientProvider } from '@tanstack/react-query';
++import { fetchJson } from '@/lib/http';
++
++export type ServiceItem = {
++  id: string;
++  slug: string;
++  name: string;
++  summary: string;
++  description: string;
++  priceFrom: number;
++  featured: boolean;
++  category?: { slug: string; name: string };
++};
++
++export type ServiceListResponse = {
++  data: ServiceItem[];
++  pagination: { total: number; page: number; pageSize: number; hasMore: boolean };
++};
++
++export function useServices(params: URLSearchParams) {
++  const key = useMemo(() => ['services', params.toString()] as const, [params]);
++  const url = useMemo(() => {
++    const u = new URL('/api/services', typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000');
++    params.forEach((v, k) => u.searchParams.set(k, v));
++    return u.toString();
++  }, [params]);
++
++  return useQuery({
++    queryKey: key,
++    queryFn: () => fetchJson<ServiceListResponse>(url),
++    staleTime: 30_000,
++    gcTime: 5 * 60_000,
++  });
++}
++
++// local provider factory for pages that don't have a global provider
++export function LocalQueryProvider({ children }: { children: React.ReactNode }) {
++  const client = useMemo(() => new QueryClient(), []);
++  return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
++}
++
+diff --git a/lib/analytics/plausible.ts b/lib/analytics/plausible.ts
+new file mode 100644
+--- /dev/null
++++ b/lib/analytics/plausible.ts
+@@ -0,0 +8 @@
++'use client';
++
++export function track(event: string, props?: Record<string, unknown>) {
++  if (typeof window !== 'undefined' && (window as any).plausible) {
++    (window as any).plausible(event, props ? { props } : undefined);
++  }
++}
++
+diff --git a/app/api/services/route.ts b/app/api/services/route.ts
+new file mode 100644
+--- /dev/null
++++ b/app/api/services/route.ts
+@@ -0,0 +67 @@
++import { NextResponse } from 'next/server';
++import prisma from '@/lib/prisma';
++import { serviceFiltersSchema, serializeService } from '@/lib/validators/service';
++
++export const dynamic = 'force-dynamic'; // query-driven
++export const runtime = 'nodejs';
++
++export async function GET(req: Request) {
++  const { searchParams } = new URL(req.url);
++  const parsed = serviceFiltersSchema.safeParse(Object.fromEntries(searchParams.entries()));
++  if (!parsed.success) {
++    return NextResponse.json(
++      { error: 'Invalid query', details: parsed.error.flatten() },
++      { status: 400 }
++    );
++  }
++  const { q, category, featured, sort = 'newest', page = 1, pageSize = 12 } =
++    parsed.data;
++
++  const where: any = {};
++  if (q) {
++    where.OR = [
++      { name: { contains: q, mode: 'insensitive' } },
++      { summary: { contains: q, mode: 'insensitive' } },
++      { description: { contains: q, mode: 'insensitive' } },
++    ];
++  }
++  if (typeof featured === 'boolean') where.featured = featured;
++  if (category) {
++    where.category = { slug: category };
++  }
++
++  const orderBy =
++    sort === 'price_asc'
++      ? { priceFrom: 'asc' as const }
++      : sort === 'price_desc'
++      ? { priceFrom: 'desc' as const }
++      : { createdAt: 'desc' as const };
++
++  const [total, items] = await Promise.all([
++    prisma.service.count({ where }),
++    prisma.service.findMany({
++      where,
++      orderBy,
++      skip: (page - 1) * pageSize,
++      take: pageSize,
++      include: { category: { select: { slug: true, name: true } } },
++    }),
++  ]);
++
++  const data = items.map(serializeService);
++  return NextResponse.json({
++    data,
++    pagination: {
++      total,
++      page,
++      pageSize,
++      hasMore: page * pageSize < total,
++    },
++  });
++}
++
+diff --git a/app/api/inquiries/route.ts b/app/api/inquiries/route.ts
+new file mode 100644
+--- /dev/null
++++ b/app/api/inquiries/route.ts
+@@ -0,0 +52 @@
++import { NextResponse } from 'next/server';
++import prisma from '@/lib/prisma';
++import { inquirySchema } from '@/lib/validators/inquiry';
++
++export const runtime = 'nodejs';
++
++export async function POST(req: Request) {
++  const body = await req.json().catch(() => null);
++  if (!body) {
++    return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
++  }
++
++  const parsed = inquirySchema.safeParse(body);
++  if (!parsed.success) {
++    return NextResponse.json(
++      { error: 'Validation failed', details: parsed.error.flatten() },
++      { status: 400 }
++    );
++  }
++
++  // Honeypot handled by schema (hp must be empty) and time trap in refine
++  const { name, email, phone, message, serviceSlug, consent } = parsed.data;
++
++  // If a serviceSlug is provided, look it up (optional)
++  let serviceId: string | undefined = undefined;
++  if (serviceSlug) {
++    const svc = await prisma.service.findUnique({ where: { slug: serviceSlug }, select: { id: true } });
++    serviceId = svc?.id;
++  }
++
++  await prisma.inquiry.create({
++    data: {
++      name,
++      email,
++      phone,
++      message,
++      consent,
++      serviceId,
++    },
++  });
++
++  return NextResponse.json({ ok: true }, { status: 201 });
++}
++
+diff --git a/app/services/page.tsx b/app/services/page.tsx
+new file mode 100644
+--- /dev/null
++++ b/app/services/page.tsx
+@@ -0,0 +66 @@
++import type { Metadata } from 'next';
++import prisma from '@/lib/prisma';
++import ServiceFilters from './ServiceFilters';
++import ServiceList from './ServiceList';
++
++export const metadata: Metadata = {
++  title: 'Services | VSA',
++  description:
++    'Explore VSA services across strategy, design, engineering, and marketing. Filter offerings and request a tailored proposal.',
++  alternates: { canonical: '/services' },
++  openGraph: {
++    title: 'Services | VSA',
++    description:
++      'Explore VSA services across strategy, design, engineering, and marketing.',
++    type: 'website',
++  },
++  twitter: {
++    card: 'summary_large_image',
++    title: 'VSA Services',
++    description:
++      'Explore VSA services across strategy, design, engineering, and marketing.',
++  },
++};
++
++export default async function ServicesPage() {
++  // Fetch categories for filters on the server
++  const categories = await prisma.serviceCategory.findMany({
++    orderBy: { name: 'asc' },
++    select: { slug: true, name: true },
++  });
++
++  const baseUrl =
++    process.env.NEXT_PUBLIC_SITE_URL ??
++    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000');
++
++  const jsonLd = {
++    '@context': 'https://schema.org',
++    '@type': 'CollectionPage',
++    name: 'VSA Services',
++    url: `${baseUrl}/services`,
++  };
++
++  return (
++    <main className="mx-auto max-w-6xl px-4 py-12">
++      <h1 className="text-3xl font-semibold tracking-tight">Services</h1>
++      <p className="mt-2 text-muted-foreground">
++        Explore our offerings and request a tailored proposal. All work ships
++        with accessibility (WCAG 2.2 AA) and Core Web Vitals objectives.
++      </p>
++
++      <div className="mt-8">
++        <ServiceFilters categories={categories} />
++      </div>
++
++      <div className="mt-6">
++        <ServiceList />
++      </div>
++
++      <script
++        type="application/ld+json"
++        // eslint-disable-next-line react/no-danger
++        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
++      />
++    </main>
++  );
++}
++
+diff --git a/app/services/ServiceFilters.tsx b/app/services/ServiceFilters.tsx
+new file mode 100644
+--- /dev/null
++++ b/app/services/ServiceFilters.tsx
+@@ -0,0 +146 @@
++'use client';
++
++import { useEffect, useMemo, useState } from 'react';
++import { usePathname, useRouter, useSearchParams } from 'next/navigation';
++import { track } from '@/lib/analytics/plausible';
++
++type Category = { slug: string; name: string };
++
++export default function ServiceFilters({
++  categories,
++}: {
++  categories: Category[];
++}) {
++  const router = useRouter();
++  const pathname = usePathname();
++  const params = useSearchParams();
++
++  const [q, setQ] = useState(params.get('q') ?? '');
++  const [category, setCategory] = useState(params.get('category') ?? '');
++  const [sort, setSort] = useState(params.get('sort') ?? 'newest');
++
++  useEffect(() => {
++    setQ(params.get('q') ?? '');
++    setCategory(params.get('category') ?? '');
++    setSort(params.get('sort') ?? 'newest');
++    // eslint-disable-next-line react-hooks/exhaustive-deps
++  }, [params.toString()]);
++
++  const onApply = () => {
++    const sp = new URLSearchParams(params.toString());
++    if (q) sp.set('q', q);
++    else sp.delete('q');
++    if (category) sp.set('category', category);
++    else sp.delete('category');
++    if (sort) sp.set('sort', sort);
++    else sp.delete('sort');
++    sp.set('page', '1'); // reset page on filter change
++    router.push(`${pathname}?${sp.toString()}`);
++    track('service_filter', { q, category, sort });
++  };
++
++  const onClear = () => {
++    router.push(pathname);
++    setQ('');
++    setCategory('');
++    setSort('newest');
++    track('service_filter_clear');
++  };
++
++  const options = useMemo(
++    () => [{ slug: '', name: 'All Categories' }, ...categories],
++    [categories]
++  );
++
++  return (
++    <section aria-labelledby="filters-heading" className="rounded-lg border p-4">
++      <h2 id="filters-heading" className="sr-only">
++        Filters
++      </h2>
++      <div className="grid gap-4 sm:grid-cols-3">
++        <div>
++          <label htmlFor="q" className="mb-1 block text-sm font-medium">
++            Search
++          </label>
++          <input
++            id="q"
++            className="w-full rounded-md border bg-background px-3 py-2 text-sm"
++            placeholder="Search services…"
++            value={q}
++            onChange={(e) => setQ(e.target.value)}
++            aria-label="Search services"
++          />
++        </div>
++
++        <div>
++          <label htmlFor="category" className="mb-1 block text-sm font-medium">
++            Category
++          </label>
++          <select
++            id="category"
++            className="w-full rounded-md border bg-background px-3 py-2 text-sm"
++            value={category}
++            onChange={(e) => setCategory(e.target.value)}
++            aria-label="Filter by category"
++          >
++            {options.map((c) => (
++              <option key={c.slug} value={c.slug}>
++                {c.name}
++              </option>
++            ))}
++          </select>
++        </div>
++
++        <div>
++          <label htmlFor="sort" className="mb-1 block text-sm font-medium">
++            Sort by
++          </label>
++          <select
++            id="sort"
++            className="w-full rounded-md border bg-background px-3 py-2 text-sm"
++            value={sort}
++            onChange={(e) => setSort(e.target.value)}
++            aria-label="Sort services"
++          >
++            <option value="newest">Newest</option>
++            <option value="price_asc">Price: Low → High</option>
++            <option value="price_desc">Price: High → Low</option>
++          </select>
++        </div>
++      </div>
++
++      <div className="mt-4 flex gap-2">
++        <button
++          type="button"
++          onClick={onApply}
++          className="inline-flex items-center rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground"
++        >
++          Apply filters
++        </button>
++        <button
++          type="button"
++          onClick={onClear}
++          className="inline-flex items-center rounded-md border px-3 py-2 text-sm font-medium"
++        >
++          Clear
++        </button>
++      </div>
++    </section>
++  );
++}
++
+diff --git a/app/services/ServiceInquiryDialog.tsx b/app/services/ServiceInquiryDialog.tsx
+new file mode 100644
+--- /dev/null
++++ b/app/services/ServiceInquiryDialog.tsx
+@@ -0,0 +208 @@
++'use client';
++
++import * as React from 'react';
++import { useForm } from 'react-hook-form';
++import { z } from 'zod';
++import { zodResolver } from '@hookform/resolvers/zod';
++import { inquirySchema, type InquiryInput } from '@/lib/validators/inquiry';
++import { track } from '@/lib/analytics/plausible';
++
++type Props = {
++  service?: { slug: string; name: string } | null;
++  trigger: React.ReactNode;
++};
++
++export default function ServiceInquiryDialog({ service, trigger }: Props) {
++  const [open, setOpen] = React.useState(false);
++  const [status, setStatus] = React.useState<'idle' | 'submitting' | 'success' | 'error'>('idle');
++  const [errorMessage, setErrorMessage] = React.useState<string>('');
++
++  const form = useForm<InquiryInput>({
++    resolver: zodResolver(inquirySchema),
++    defaultValues: {
++      name: '',
++      email: '',
++      phone: '',
++      message: '',
++      serviceSlug: service?.slug,
++      consent: false,
++      formLoadedAt: Date.now(),
++      hp: '',
++    },
++  });
++
++  React.useEffect(() => {
++    // reset timestamp when dialog opens to power time-trap
++    if (open) {
++      form.setValue('formLoadedAt', Date.now());
++    }
++    // eslint-disable-next-line react-hooks/exhaustive-deps
++  }, [open]);
++
++  const onSubmit = form.handleSubmit(async (values) => {
++    setStatus('submitting');
++    setErrorMessage('');
++    try {
++      const res = await fetch('/api/inquiries', {
++        method: 'POST',
++        headers: { 'Content-Type': 'application/json' },
++        body: JSON.stringify(values),
++      });
++      if (!res.ok) {
++        const data = await res.json().catch(() => ({}));
++        throw new Error(data?.error || res.statusText);
++      }
++      setStatus('success');
++      track('inquiry_submit', { service: values.serviceSlug ?? 'unspecified' });
++    } catch (err: any) {
++      setStatus('error');
++      setErrorMessage(err?.message || 'Something went wrong');
++    }
++  });
++
++  return (
++    <div>
++      <button
++        type="button"
++        onClick={() => setOpen(true)}
++        className="inline-flex items-center rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground"
++        aria-haspopup="dialog"
++      >
++        {trigger}
++      </button>
++
++      {open && (
++        <div
++          role="dialog"
++          aria-modal="true"
++          aria-labelledby="inquiry-title"
++          className="fixed inset-0 z-50 flex items-center justify-center p-4"
++        >
++          <div className="absolute inset-0 bg-black/40" onClick={() => setOpen(false)} aria-hidden />
++          <div className="relative z-10 w-full max-w-lg rounded-lg bg-background p-6 shadow-lg">
++            <div className="flex items-start justify-between">
++              <h3 id="inquiry-title" className="text-lg font-medium">
++                {service ? `Enquire about ${service.name}` : 'Start a project'}
++              </h3>
++              <button
++                type="button"
++                aria-label="Close"
++                className="ml-2 rounded p-1 hover:bg-muted"
++                onClick={() => setOpen(false)}
++              >
++                ✕
++              </button>
++            </div>
++
++            <form className="mt-4 grid gap-3" onSubmit={onSubmit} noValidate>
++              <div className="grid gap-1">
++                <label htmlFor="name" className="text-sm font-medium">
++                  Name
++                </label>
++                <input
++                  id="name"
++                  className="rounded-md border bg-background px-3 py-2 text-sm"
++                  {...form.register('name')}
++                  required
++                />
++                <FieldError msg={form.formState.errors.name?.message} />
++              </div>
++
++              <div className="grid gap-1">
++                <label htmlFor="email" className="text-sm font-medium">
++                  Email
++                </label>
++                <input
++                  id="email"
++                  type="email"
++                  className="rounded-md border bg-background px-3 py-2 text-sm"
++                  {...form.register('email')}
++                  required
++                />
++                <FieldError msg={form.formState.errors.email?.message} />
++              </div>
++
++              <div className="grid gap-1">
++                <label htmlFor="phone" className="text-sm font-medium">
++                  Phone (optional)
++                </label>
++                <input
++                  id="phone"
++                  className="rounded-md border bg-background px-3 py-2 text-sm"
++                  {...form.register('phone')}
++                />
++                <FieldError msg={form.formState.errors.phone?.message} />
++              </div>
++
++              <div className="grid gap-1">
++                <label htmlFor="message" className="text-sm font-medium">
++                  Project details
++                </label>
++                <textarea
++                  id="message"
++                  className="min-h-[120px] rounded-md border bg-background px-3 py-2 text-sm"
++                  {...form.register('message')}
++                  required
++                />
++                <FieldError msg={form.formState.errors.message?.message} />
++              </div>
++
++              {/* Hidden anti‑spam fields */}
++              <input type="hidden" aria-hidden {...form.register('formLoadedAt', { valueAsNumber: true })} />
++              <div className="sr-only" aria-hidden>
++                <label htmlFor="company">Company</label>
++                <input id="company" tabIndex={-1} autoComplete="off" {...form.register('hp')} />
++              </div>
++
++              <div className="mt-1 flex items-start gap-2">
++                <input
++                  id="consent"
++                  type="checkbox"
++                  className="mt-1"
++                  {...form.register('consent')}
++                />
++                <label htmlFor="consent" className="text-sm">
++                  I agree to be contacted about this enquiry.
++                </label>
++              </div>
++              <FieldError msg={form.formState.errors.consent?.message} />
++
++              <div className="mt-2 flex items-center gap-2">
++                <button
++                  type="submit"
++                  disabled={status === 'submitting'}
++                  className="inline-flex items-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50"
++                >
++                  {status === 'submitting' ? 'Submitting…' : 'Send enquiry'}
++                </button>
++                <button
++                  type="button"
++                  className="rounded-md border px-3 py-2 text-sm"
++                  onClick={() => setOpen(false)}
++                >
++                  Cancel
++                </button>
++              </div>
++
++              <div className="mt-2" aria-live="polite" role="status">
++                {status === 'success' && (
++                  <p className="text-sm text-green-600">
++                    Thanks! We’ve received your enquiry and will reply shortly.
++                  </p>
++                )}
++                {status === 'error' && (
++                  <p className="text-sm text-red-600">Error: {errorMessage}</p>
++                )}
++              </div>
++            </form>
++          </div>
++        </div>
++      )}
++    </div>
++  );
++}
++
++function FieldError({ msg }: { msg?: string }) {
++  if (!msg) return null;
++  return <p className="text-xs text-red-600">{msg}</p>;
++}
++
+diff --git a/app/services/ServiceList.tsx b/app/services/ServiceList.tsx
+new file mode 100644
+--- /dev/null
++++ b/app/services/ServiceList.tsx
+@@ -0,0 +96 @@
++'use client';
++
++import { useMemo } from 'react';
++import { useSearchParams } from 'next/navigation';
++import { useServices, LocalQueryProvider, type ServiceItem } from '@/lib/hooks/useServices';
++import ServiceInquiryDialog from './ServiceInquiryDialog';
++
++export default function ServiceList() {
++  // provide a local QueryClient only for this subtree
++  return (
++    <LocalQueryProvider>
++      <ServiceListInner />
++    </LocalQueryProvider>
++  );
++}
++
++function ServiceListInner() {
++  const params = useSearchParams();
++  const effectiveParams = useMemo(() => new URLSearchParams(params.toString()), [params]);
++  const { data, isLoading, isError, error } = useServices(effectiveParams);
++
++  if (isLoading) {
++    return <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{Array.from({ length: 6 }).map((_, i) => <SkeletonCard key={i} />)}</div>;
++  }
++
++  if (isError) {
++    return (
++      <div className="rounded-md border p-4 text-red-700">
++        Failed to load services: {(error as Error)?.message || 'Unknown error'}
++      </div>
++    );
++  }
++
++  const items = data?.data ?? [];
++  return (
++    <section aria-labelledby="service-list-heading">
++      <h2 id="service-list-heading" className="sr-only">
++        Service results
++      </h2>
++      {items.length === 0 ? (
++        <p className="rounded-md border p-4 text-sm">No services matched your filters.</p>
++      ) : (
++        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
++          {items.map((s) => (
++            <ServiceCard key={s.id} s={s} />
++          ))}
++        </div>
++      )}
++    </section>
++  );
++}
++
++function ServiceCard({ s }: { s: ServiceItem }) {
++  return (
++    <article className="flex h-full flex-col justify-between rounded-lg border p-4">
++      <div>
++        <div className="flex items-center justify-between gap-2">
++          <h3 className="text-lg font-semibold">{s.name}</h3>
++          {s.featured && <span className="rounded-full border px-2 py-0.5 text-xs">Featured</span>}
++        </div>
++        {s.category && (
++          <p className="mt-1 text-xs text-muted-foreground">{s.category.name}</p>
++        )}
++        <p className="mt-2 text-sm text-muted-foreground">{s.summary}</p>
++      </div>
++      <div className="mt-4 flex items-center justify-between">
++        <p className="text-sm">
++          From{' '}
++          <span className="font-semibold">
++            ${s.priceFrom.toLocaleString(undefined, { minimumFractionDigits: 0 })}
++          </span>
++        </p>
++        <ServiceInquiryDialog
++          service={{ slug: s.slug, name: s.name }}
++          trigger={<span>Enquire</span>}
++        />
++      </div>
++    </article>
++  );
++}
++
++function SkeletonCard() {
++  return <div className="h-48 animate-pulse rounded-lg border bg-muted" />;
++}
++
+diff --git a/tests/unit/inquiry-validator.test.ts b/tests/unit/inquiry-validator.test.ts
+new file mode 100644
+--- /dev/null
++++ b/tests/unit/inquiry-validator.test.ts
+@@ -0,0 +49 @@
++import { describe, expect, it } from 'vitest';
++import { inquirySchema } from '@/lib/validators/inquiry';
++
++describe('inquirySchema', () => {
++  it('accepts valid input', () => {
++    const now = Date.now() - 4000;
++    const res = inquirySchema.safeParse({
++      name: 'Ada Lovelace',
++      email: 'ada@example.com',
++      phone: '+1 555 0100',
++      message: 'I would like a landing page.',
++      serviceSlug: 'landing-page',
++      consent: true,
++      formLoadedAt: now,
++      hp: '',
++    });
++    expect(res.success).toBe(true);
++  });
++
++  it('rejects too-fast submissions', () => {
++    const res = inquirySchema.safeParse({
++      name: 'Ada',
++      email: 'ada@example.com',
++      message: 'short but ok message text',
++      consent: true,
++      formLoadedAt: Date.now(), // 0ms elapsed
++      hp: '',
++    });
++    expect(res.success).toBe(false);
++  });
++
++  it('rejects honeypot filled', () => {
++    const res = inquirySchema.safeParse({
++      name: 'Grace',
++      email: 'g@example.com',
++      message: 'hello world message long enough',
++      consent: true,
++      formLoadedAt: Date.now() - 4000,
++      hp: 'I am a bot',
++    });
++    expect(res.success).toBe(false);
++  });
++});
++
+diff --git a/tests/unit/service-filters.test.ts b/tests/unit/service-filters.test.ts
+new file mode 100644
+--- /dev/null
++++ b/tests/unit/service-filters.test.ts
+@@ -0,0 +28 @@
++import { describe, expect, it } from 'vitest';
++import { serviceFiltersSchema } from '@/lib/validators/service';
++
++describe('serviceFiltersSchema', () => {
++  it('parses defaults', () => {
++    const res = serviceFiltersSchema.parse({});
++    expect(res.page).toBe(1);
++    expect(res.pageSize).toBe(12);
++    expect(res.sort).toBe('newest');
++  });
++
++  it('coerces booleans for featured', () => {
++    expect(serviceFiltersSchema.parse({ featured: '1' }).featured).toBe(true);
++    expect(serviceFiltersSchema.parse({ featured: '0' }).featured).toBe(false);
++  });
++
++  it('rejects invalid sort', () => {
++    const res = serviceFiltersSchema.safeParse({ sort: 'random' as any });
++    expect(res.success).toBe(false);
++  });
++});
++
+diff --git a/tests/e2e/services.spec.ts b/tests/e2e/services.spec.ts
+new file mode 100644
+--- /dev/null
++++ b/tests/e2e/services.spec.ts
+@@ -0,0 +67 @@
++import { test, expect } from '@playwright/test';
++
++test('services page loads, filters, and submits enquiry', async ({ page }) => {
++  // Stub the services API
++  await page.route('**/api/services**', async (route) => {
++    const url = new URL(route.request().url());
++    const q = url.searchParams.get('q') ?? '';
++    const data = [
++      {
++        id: '1',
++        slug: 'landing-page',
++        name: 'Landing Page',
++        summary: 'High‑converting, fast, accessible landing page.',
++        description: 'desc',
++        priceFrom: 3200,
++        featured: true,
++        category: { slug: 'design', name: 'Design' },
++      },
++    ].filter((s) => s.name.toLowerCase().includes(q.toLowerCase()));
++    await route.fulfill({
++      status: 200,
++      contentType: 'application/json',
++      body: JSON.stringify({
++        data,
++        pagination: { total: data.length, page: 1, pageSize: 12, hasMore: false },
++      }),
++    });
++  });
++
++  // Stub the inquiries API (accept everything)
++  await page.route('**/api/inquiries', async (route) => {
++    if (route.request().method() === 'POST') {
++      await route.fulfill({
++        status: 201,
++        contentType: 'application/json',
++        body: JSON.stringify({ ok: true }),
++      });
++    } else {
++      await route.fallback();
++    }
++  });
++
++  await page.goto('/services');
++
++  // Filter by query
++  await page.getByLabel('Search').fill('landing');
++  await page.getByRole('button', { name: /apply filters/i }).click();
++
++  // Assert list shows item
++  await expect(page.getByRole('heading', { name: 'Landing Page' })).toBeVisible();
++
++  // Open enquiry dialog
++  await page.getByRole('button', { name: 'Enquire' }).click();
++
++  // Fill and submit form
++  await page.getByLabel('Name').fill('Test User');
++  await page.getByLabel('Email').fill('test@example.com');
++  await page.getByLabel('Project details').fill('Please contact me about a landing page.');
++  await page.getByLabel('I agree to be contacted about this enquiry.').check();
++
++  // Wait a bit to satisfy time-trap
++  await page.waitForTimeout(3100);
++
++  await page.getByRole('button', { name: /send enquiry/i }).click();
++  await expect(page.getByText(/received your enquiry/i)).toBeVisible();
++});
++
+diff --git a/.env.example b/.env.example
+new file mode 100644
+--- /dev/null
++++ b/.env.example
+@@ -0,0 +20 @@
++# --- Core Next/Auth ---
++NEXTAUTH_URL=http://localhost:3000
++NEXTAUTH_SECRET=replace_me_in_production
++
++# --- Database (PostgreSQL via Prisma) ---
++DATABASE_URL=postgresql://USER:PASSWORD@HOST:PORT/DBNAME?schema=public
++
++# --- OAuth (if enabled) ---
++GOOGLE_CLIENT_ID=
++GOOGLE_CLIENT_SECRET=
++
++# --- Analytics & Monitoring ---
++PLAUSIBLE_DOMAIN=your-domain.example
++SENTRY_DSN=
++
++# --- Site URL for absolute metadata / JSON-LD ---
++NEXT_PUBLIC_SITE_URL=http://localhost:3000
++
