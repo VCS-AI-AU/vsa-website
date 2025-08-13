@@ -3,9 +3,12 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"   // not "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
+  // If you also set a non-pooled URL you can add:
+  // directUrl = env("DATABASE_URL_UNPOOLED")
 }
+
 
 generator client {
   provider = "prisma-client-js"
