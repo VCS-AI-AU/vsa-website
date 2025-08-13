@@ -4,9 +4,12 @@ generator client {
 
 datasource db {
   provider  = "postgresql"
-  url       = env("DATABASE_URL")
-  directUrl = env("DATABASE_URL_UNPOOLED")
+  url       = env("DATABASE_URL")           // pooled connection (has "-pooler")
+  directUrl = env("DATABASE_URL_UNPOOLED")  // direct connection (no "-pooler")
 }
+
+/* keep your models below here… */
+
 
 // -----------------------------
 // VSA Service & Inquiry Models
